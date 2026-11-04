@@ -21,6 +21,11 @@
       <span>名前</span>
       <input id="nameInput" maxlength="12" placeholder="プレイヤー" autocomplete="off">
     </label>
+    <div id="titleSkillSlot"><div id="skillPick" class="skill-pick">
+      <p class="pick-title">スキルを2つ選ぶ <span class="pick-keys">（Q・E で使う）</span></p>
+      <div id="skillGrid" class="skill-grid" role="group" aria-label="スキル"></div>
+      <p id="skillDesc" class="skill-desc"></p>
+    </div></div>
     <div id="onlineBox">
       <button id="btnCreate" class="btn primary">部屋を作る</button>
       <div class="join-row">
@@ -31,7 +36,7 @@
     </div>
     <p id="offlineNote" class="note" hidden>この版はひとり練習専用です。みんなで遊ぶときはサーバー版を開いてください。</p>
     <button id="btnSolo" class="btn ghost">ひとりで練習</button>
-    <p class="help">マウスで移動 ・ Space 分裂 ・ W 射出<br>スマホは左で移動、右のボタンで分裂・射出</p>
+    <p class="help">マウスで移動 ・ Space 分裂 ・ W 射出 ・ Q / E スキル<br>スマホは左で移動、右のボタンで分裂・射出・スキル</p>
   </div>
 </section>
 
@@ -42,6 +47,7 @@
     <p id="roomCode" class="room-code">----</p>
     <p class="note">このコードを友だちに伝えてください</p>
     <ul id="memberList" class="members"></ul>
+    <div id="lobbySkillSlot"></div>
     <div id="hostBox">
       <label class="field inline">
         <span>試合時間</span>
@@ -71,6 +77,10 @@
     <p class="death-title">食べられた！</p>
     <p id="deathBy"></p>
     <p id="deathCount" class="death-count">3</p>
+  </div>
+  <div id="skillBar">
+    <button id="sk0" class="skill-btn" type="button"><span class="sk-key">Q</span><span class="sk-name"></span><span class="sk-cd"></span></button>
+    <button id="sk1" class="skill-btn" type="button"><span class="sk-key">E</span><span class="sk-name"></span><span class="sk-cd"></span></button>
   </div>
   <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
   <button id="btnSplit" class="tbtn">分裂</button>

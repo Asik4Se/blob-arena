@@ -29,9 +29,10 @@
     goldenMass: 150,
     goldenLife: 30,
     feverLeft: 60,
-    meteorChecks: [120, 210],
-    meteorChance: 0.5,
-    meteorDuration: 30,
+    meteorEvery: 60,       // 流星群が来る間隔（秒）。5分の試合なら1:00・2:00・3:00・4:00の4回
+    meteorChance: 1,       // 毎回来る確率
+    meteorDuration: 20,    // 1回の流星群の長さ（秒）
+    meteorDrop: 0.16,      // 隕石が1つ落ちる間隔（秒）
     meteorWarn: 1.2,
     meteorRadius: 90,
     meteorPopMass: 300,
@@ -52,6 +53,29 @@
     M: { min: 50, max: 150, cap: 220 },
     L: { min: 200, max: 500, cap: 750 },
   };
+
+  // プレイヤーが試合前に2つ選んで使うスキル（cd：使ったあと次に使えるまでの秒数、dur：効果が続く秒数）
+  const SKILLS = {
+    dash: { name: 'ダッシュ', desc: '2.5秒間、移動が1.7倍速くなる', cd: 10, dur: 2.5 },
+    shield: { name: 'シールド', desc: '3秒間、食べられず、ウイルスや隕石でも割れない', cd: 25, dur: 3 },
+    magnet: { name: 'マグネット', desc: '5秒間、まわりのエサとゴールデンエサを吸い寄せる', cd: 18, dur: 5 },
+    warp: { name: 'ワープ', desc: '進んでいる方向へ一瞬で移動する', cd: 15, dur: 0 },
+    stealth: { name: 'ステルス', desc: '6秒間、ほかのプレイヤーとNPCから見えなくなる', cd: 25, dur: 6 },
+    trap: { name: 'トラップ', desc: '背後にウイルスを置き、追ってくる大きい相手を割る', cd: 20, dur: 0 },
+  };
+  const SKILL_IDS = Object.keys(SKILLS);
+  const DEFAULT_SKILLS = ['dash', 'shield'];
+  // 不正な指定を直して、必ず違うスキル2つにする
+  function cleanSkills(list) {
+    const out = [];
+    if (Array.isArray(list)) for (const k of list) if (SKILLS[k] && !out.includes(k) && out.length < 2) out.push(k);
+    for (const k of DEFAULT_SKILLS) if (out.length < 2 && !out.includes(k)) out.push(k);
+    return out;
+  }
+  const WARP_DIST = 420;
+  const DASH_MUL = 1.7;
+  const MAGNET_REACH = 260;
+  const TRAP_LIFE = 30;
 
   const radius = (m) => 6 * Math.sqrt(m);
   const speedOf = (m) => Math.max(26, 620 * Math.pow(m, -0.36));
@@ -116,11 +140,12 @@
     }
 
     // ---------- プレイヤー ----------
-    addPlayer(id, name) {
+    addPlayer(id, name, skills) {
       const p = {
         id, name: (name || 'プレイヤー').slice(0, 12), isNpc: false,
         hue: Math.floor(Math.random() * NAMES_COLORS), cells: [],
         tx: 0, ty: 0, alive: false, respawnAt: 0, killedBy: '', ejectHeld: false, ejectCd: 0,
+        skills: cleanSkills(skills), cdUntil: {}, fx: {},
       };
       this.owners.set(id, p);
       this.updateSize();
@@ -149,6 +174,48 @@
       p.cells[0].ghostUntil = this.time + CFG.ghostTime;
       p.alive = true;
       p.tx = 0; p.ty = 0;
+      p.fx = {}; p.cdUntil = {}; // 復活したらスキルはすぐ使える
+    }
+
+    // ---------- スキル ----------
+    fx(o, k) { return !!(o && !o.isNpc && o.fx && o.fx[k] > this.time); }
+    shielded(o) { return this.fx(o, 'shield'); }
+    useSkill(id, slot) {
+      const p = this.owners.get(id);
+      if (!p || p.isNpc || !p.alive || !p.cells.length) return false;
+      const k = p.skills[slot];
+      const def = k && SKILLS[k];
+      if (!def || (p.cdUntil[k] || 0) > this.time) return false;
+      p.cdUntil[k] = this.time + def.cd;
+      if (def.dur) p.fx[k] = this.time + def.dur;
+      if (k === 'warp') this.warpOwner(p);
+      if (k === 'trap') this.placeTrap(p);
+      return true;
+    }
+    moveDir(p) {
+      let dx = p.tx, dy = p.ty;
+      let d = Math.hypot(dx, dy);
+      if (d < 1) { const a = Math.random() * Math.PI * 2; dx = Math.cos(a); dy = Math.sin(a); d = 1; }
+      return { x: dx / d, y: dy / d };
+    }
+    warpOwner(p) {
+      const dir = this.moveDir(p);
+      for (const c of p.cells) {
+        const r = radius(c.mass);
+        c.x = clamp(c.x + dir.x * WARP_DIST, r * 0.5, this.size - r * 0.5);
+        c.y = clamp(c.y + dir.y * WARP_DIST, r * 0.5, this.size - r * 0.5);
+        c.vx = 0; c.vy = 0;
+      }
+      p.warpAt = this.time;
+    }
+    placeTrap(p) {
+      const dir = this.moveDir(p);
+      const center = this.centerOf(p);
+      let big = 0;
+      for (const c of p.cells) big = Math.max(big, radius(c.mass));
+      const d = big + radius(CFG.virusMass) + 40;
+      const x = clamp(center.x - dir.x * d, 60, this.size - 60), y = clamp(center.y - dir.y * d, 60, this.size - 60);
+      this.viruses.push({ id: uid++, x, y, vx: 0, vy: 0, mass: CFG.virusMass, feeds: 0, trap: p.id, safeUntil: this.time + 1.5, until: this.time + TRAP_LIFE });
     }
 
     setInput(id, dx, dy) {
@@ -404,6 +471,7 @@
       this.cellGrid.query(center.x - view, center.y - view, center.x + view, center.y + view, (c) => {
         if (c.owner === npc) return;
         if (c.ghostUntil > this.time) return;
+        if (this.fx(c.owner, 'stealth')) return;
         const dx = c.x - center.x, dy = c.y - center.y;
         const d = Math.hypot(dx, dy) || 1;
         if (d > view) return;
@@ -459,7 +527,7 @@
           if (this.time > npc.wanderAt || dist2(npc.wanderX, npc.wanderY, center.x, center.y) < 80 * 80) {
             if (giant) {
               // ヌシはプレイヤーの方へゆっくり寄っていく
-              const ps = this.players().filter((p) => p.alive);
+              const ps = this.players().filter((p) => p.alive && !this.fx(p, 'stealth'));
               if (ps.length && Math.random() < 0.6) {
                 const t = this.centerOf(ps[Math.floor(Math.random() * ps.length)]);
                 npc.wanderX = t.x + rand(-400, 400); npc.wanderY = t.y + rand(-400, 400);
@@ -521,7 +589,7 @@
         if (!o.cells.length) continue;
         const center = this.centerOf(o);
         const gx = center.x + o.tx, gy = center.y + o.ty;
-        const mul = o.kind === 'G' ? CFG.giantSpeedMul : 1;
+        const mul = o.kind === 'G' ? CFG.giantSpeedMul : (this.fx(o, 'dash') ? DASH_MUL : 1);
         for (const c of o.cells) {
           let dx = gx - c.x, dy = gy - c.y;
           const d = Math.hypot(dx, dy);
@@ -596,6 +664,26 @@
         }
       }
 
+      // マグネット：まわりのエサを吸い寄せる
+      for (const o of this.owners.values()) {
+        if (!this.fx(o, 'magnet')) continue;
+        for (const c of o.cells) {
+          const reach = radius(c.mass) + MAGNET_REACH;
+          this.pelletGrid.query(c.x - reach, c.y - reach, c.x + reach, c.y + reach, (pl) => {
+            const dx = c.x - pl.x, dy = c.y - pl.y, d = Math.hypot(dx, dy) || 1;
+            if (d > reach) return;
+            const sp = Math.min(d, 750 * dt);
+            pl.x += (dx / d) * sp; pl.y += (dy / d) * sp;
+          });
+          for (const g of this.golden) {
+            const dx = c.x - g.x, dy = c.y - g.y, d = Math.hypot(dx, dy) || 1;
+            if (d > reach + 120) continue;
+            const sp = Math.min(d, 550 * dt);
+            g.x += (dx / d) * sp; g.y += (dy / d) * sp;
+          }
+        }
+      }
+
       // 再構築（移動後）
       this.cellGrid.clear();
       const allCells = [];
@@ -642,6 +730,7 @@
           if (b === a || b.mass <= 0 || a.mass <= 0) return;
           if (b.owner === a.owner) return;
           if (b.ghostUntil > T) return;
+          if (this.shielded(b.owner)) return;
           if (a.mass < b.mass * CFG.eatRatio) return;
           const rb = radius(b.mass);
           if (dist2(a.x, a.y, b.x, b.y) > (ra - rb * 0.35) ** 2) return;
@@ -660,16 +749,19 @@
         this.cellGrid.query(v.x - 400, v.y - 400, v.x + 400, v.y + 400, (c) => {
           if (v.dead || c.mass <= 0) return;
           if (c.mass < v.mass * 1.33) return;
+          if (this.shielded(c.owner)) return;
+          if (v.trap && v.trap === c.owner.id && T < v.safeUntil) return;
           const r = radius(c.mass);
           if (dist2(v.x, v.y, c.x, c.y) > (r - vr * 0.3) ** 2) return;
           v.dead = true;
           this.popCell(c, v.mass);
         });
       }
-      const before = this.viruses.length;
-      this.viruses = this.viruses.filter((v) => !v.dead);
-      for (let i = this.viruses.length; i < Math.min(before, CFG.virusCount); i++) this.spawnVirus();
-      while (this.viruses.length < CFG.virusCount) this.spawnVirus();
+      // トラップのウイルスは30秒で消える。ふつうのウイルスは常に一定数を保つ
+      this.viruses = this.viruses.filter((v) => !v.dead && !(v.until && T >= v.until));
+      let natural = 0;
+      for (const v of this.viruses) if (!v.until) natural++;
+      for (; natural < CFG.virusCount; natural++) this.spawnVirus();
 
       // 隕石
       this.updateMeteors(dt);
@@ -699,11 +791,8 @@
         }
       }
 
-      // NPC補充・ヌシの維持（毎秒）
-      if (T >= this.npcCheckAt) {
-        this.npcCheckAt = T + 1;
-        this.maintainGiant();
-      }
+      // ヌシの維持（毎ステップ）
+      this.maintainGiant();
       // 死んだNPCはすぐ補充
       this.balanceNpcs(false);
 
@@ -741,7 +830,14 @@
       for (const o of this.owners.values()) if (o.isNpc && o.kind === 'G') giant = o;
       if (!giant) { this.spawnNpc('G'); return; }
       const m = this.massOf(giant);
-      if (m < target) {
+      let maxP = 0;
+      for (const p of this.owners.values()) if (!p.isNpc && p.alive) maxP = Math.max(maxP, this.massOf(p));
+      if (m < maxP * 1.1) {
+        // 最大プレイヤーに追いつかれそうなら、すぐに目標の大きさまで育てる
+        let main = giant.cells[0];
+        for (const c of giant.cells) if (c.mass > main.mass) main = c;
+        main.mass += target - m;
+      } else if (m < target) {
         const add = Math.min(target - m, Math.max(target * 0.05, 30));
         let main = giant.cells[0];
         for (const c of giant.cells) if (c.mass > main.mass) main = c;
@@ -768,17 +864,16 @@
 
     updateMeteors(dt) {
       const T = this.time;
-      for (const at of CFG.meteorChecks) {
-        if (!this.meteorChecked[at] && T >= at) {
-          this.meteorChecked[at] = true;
-          if (Math.random() < CFG.meteorChance) {
-            this.meteorUntil = T + CFG.meteorDuration;
-            this.notice('流星群が来た！ 大きいセルは割れる！', 'meteor');
-          }
+      const wave = Math.floor(T / CFG.meteorEvery);
+      if (wave >= 1 && !this.meteorChecked[wave] && T < this.matchTime - 5) {
+        this.meteorChecked[wave] = true;
+        if (Math.random() < CFG.meteorChance) {
+          this.meteorUntil = T + CFG.meteorDuration;
+          this.notice('流星群が来た！ 大きいセルは割れる！', 'meteor');
         }
       }
       if (T < this.meteorUntil && T >= this.meteorNext) {
-        this.meteorNext = T + 0.25;
+        this.meteorNext = T + CFG.meteorDrop;
         let x, y;
         const big = [];
         for (const o of this.owners.values()) for (const c of o.cells) if (c.mass >= CFG.meteorPopMass) big.push(c);
@@ -793,6 +888,7 @@
         mt.hit = true;
         this.cellGrid.query(mt.x - 800, mt.y - 800, mt.x + 800, mt.y + 800, (c) => {
           if (c.mass < CFG.meteorPopMass) return;
+          if (this.shielded(c.owner)) return;
           const r = radius(c.mass);
           if (dist2(c.x, c.y, mt.x, mt.y) < (r + CFG.meteorRadius) ** 2) this.popCell(c, 0);
         });
@@ -841,19 +937,25 @@
       const inView = (x, y, r) => x + r > x0 && x - r < x1 && y + r > y0 && y - r < y1;
 
       const cells = [];
-      for (const o of this.owners.values()) for (const c of o.cells) {
-        const r = radius(c.mass);
-        if (!inView(c.x, c.y, r)) continue;
-        cells.push({
-          i: c.id, x: Math.round(c.x), y: Math.round(c.y), m: Math.round(c.mass),
-          h: o.hue, n: o.isNpc ? '' : o.name, k: o.isNpc ? o.kind : 'P',
-          g: c.ghostUntil > T ? 1 : 0, b: (!o.isNpc && o.id === this.bountyId) ? 1 : 0, me: o.id === id ? 1 : 0,
-        });
+      for (const o of this.owners.values()) {
+        // ステルス中のプレイヤーは、本人以外には見えない
+        if (o.id !== id && this.fx(o, 'stealth')) continue;
+        const f = o.isNpc ? 0 : (this.fx(o, 'shield') ? 1 : 0) | (this.fx(o, 'dash') ? 2 : 0) | (this.fx(o, 'magnet') ? 4 : 0) | (this.fx(o, 'stealth') ? 8 : 0);
+        for (const c of o.cells) {
+          const r = radius(c.mass);
+          if (!inView(c.x, c.y, r + (f & 4 ? MAGNET_REACH : 0))) continue;
+          cells.push({
+            i: c.id, x: Math.round(c.x), y: Math.round(c.y), m: Math.round(c.mass),
+            h: o.hue, n: o.isNpc ? '' : o.name, k: o.isNpc ? o.kind : 'P',
+            g: c.ghostUntil > T ? 1 : 0, b: (!o.isNpc && o.id === this.bountyId) ? 1 : 0, me: o.id === id ? 1 : 0,
+            f, w: o.warpAt && T - o.warpAt < 0.15 ? 1 : 0,
+          });
+        }
       }
       const pellets = [];
       for (const pl of this.pellets) if (inView(pl.x, pl.y, 5)) pellets.push(Math.round(pl.x), Math.round(pl.y), pl.hue);
       const viruses = [];
-      for (const v of this.viruses) if (inView(v.x, v.y, 80)) viruses.push({ i: v.id, x: Math.round(v.x), y: Math.round(v.y), m: v.mass });
+      for (const v of this.viruses) if (inView(v.x, v.y, 80)) viruses.push({ i: v.id, x: Math.round(v.x), y: Math.round(v.y), m: v.mass, t: v.until ? Math.max(0, Math.round(v.until - T)) : 0 });
       const ejected = [];
       for (const e of this.ejected) if (inView(e.x, e.y, 30)) ejected.push({ i: e.id, x: Math.round(e.x), y: Math.round(e.y), h: e.hue });
       const golden = [];
@@ -865,6 +967,7 @@
       const players = [];
       for (const o of this.owners.values()) {
         if (o.isNpc || !o.alive || !o.cells.length) continue;
+        if (o.id !== id && this.fx(o, 'stealth')) continue;
         const c = this.centerOf(o);
         players.push([Math.round(c.x), Math.round(c.y), o.id === id ? 1 : 0, o.id === this.bountyId ? 1 : 0]);
       }
@@ -879,6 +982,9 @@
         me: p ? {
           alive: p.alive, score: Math.floor(total), respawnIn: p.alive ? 0 : Math.max(0, p.respawnAt - T),
           killedBy: p.killedBy || '', rank: myRank + 1, bounty: p.id === this.bountyId,
+          skills: p.skills.map((k) => ({
+            id: k, cd: Math.max(0, +((p.cdUntil[k] || 0) - T).toFixed(1)), act: Math.max(0, +((p.fx[k] || 0) - T).toFixed(1)),
+          })),
         } : null,
         cells, pellets, viruses, ejected, golden, meteors,
         ranking: this.ranking.slice(0, 10).map((r) => ({ id: r.id, n: r.name, s: r.score, me: r.id === id ? 1 : 0, b: r.id === this.bountyId ? 1 : 0 })),
@@ -891,5 +997,5 @@
     }
   }
 
-  return { Game, CFG, radius, speedOf, drawScale };
+  return { Game, CFG, SKILLS, SKILL_IDS, DEFAULT_SKILLS, cleanSkills, radius, speedOf, drawScale };
 });

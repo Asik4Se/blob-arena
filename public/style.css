@@ -117,3 +117,36 @@ body.touch #mini { width: 110px; height: 110px; left: auto; right: 12px; bottom:
 .result-list li.me { outline: 2px solid var(--accent); }
 .result-list .s { font-weight: 800; }
 #resultHost { display: flex; flex-direction: column; gap: 8px; }
+
+/* スキル選び */
+.skill-pick { text-align: left; margin-bottom: 16px; }
+.pick-title { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.pick-keys { font-size: 11px; }
+.skill-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.skill-opt { position: relative; font: inherit; font-weight: 700; font-size: 13px; padding: 10px 4px; border-radius: 12px;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
+.skill-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.skill-opt.on { background: rgba(92, 242, 197, 0.16); border-color: var(--accent); color: var(--accent); }
+.skill-opt .slot { position: absolute; top: -7px; right: -5px; font-size: 10px; font-weight: 800; background: var(--accent); color: #062b22;
+  border-radius: 6px; padding: 1px 5px; }
+.skill-desc { margin: 8px 0 0; min-height: 2.6em; font-size: 12px; color: var(--muted); line-height: 1.5; }
+#lobbySkillSlot .skill-pick { margin: 4px 0 14px; }
+.members .mskills { font-size: 11px; color: var(--muted); margin-left: 6px; }
+
+/* 試合中のスキルボタン */
+#skillBar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
+.skill-btn { pointer-events: auto; position: relative; overflow: hidden; width: 118px; height: 52px; border-radius: 14px; border: 1px solid var(--line);
+  background: rgba(8, 14, 30, 0.88); color: var(--text); font: inherit; font-weight: 800; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px; }
+.skill-btn .sk-key { font-size: 11px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--muted); }
+.skill-btn .sk-cd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 18, 0.72);
+  font-size: 18px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.skill-btn.ready { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(92,242,197,0.35) inset; }
+.skill-btn.ready .sk-cd { display: none; }
+.skill-btn.active { border-color: var(--gold); color: var(--gold); }
+.skill-btn.active .sk-cd { display: block; inset: auto 6px auto auto; top: 4px; background: none; color: var(--gold); font-size: 11px; line-height: 1; }
+.skill-btn.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--gold); }
+body.touch #skillBar { left: auto; right: 24px; bottom: 140px; transform: none; flex-direction: column; gap: 8px; }
+body.touch .skill-btn { width: 92px; height: 44px; font-size: 13px; }
+body.touch .skill-btn .sk-key { display: none; }
+@media (max-width: 640px) { body.touch #mini { bottom: 250px; } }

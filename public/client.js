@@ -1,7 +1,7 @@
 // ブロブアリーナ クライアント（描画・HUD・操作）
 (function () {
   'use strict';
-  const { Game, radius, drawScale } = window.BlobCore;
+  const { Game, SKILLS, SKILL_IDS, cleanSkills, radius, drawScale } = window.BlobCore;
   const $ = (id) => document.getElementById(id);
   const cv = $('cv'), ctx = cv.getContext('2d');
   const mini = $('mini'), mctx = mini.getContext('2d');
@@ -20,6 +20,9 @@
   function show(id) {
     for (const s of ['title', 'lobby', 'result']) $(s).hidden = s !== id;
     $('hud').hidden = id !== 'game' && id !== 'result';
+    // スキル選びはタイトルとロビーで同じものを使う
+    if (id === 'lobby') $('lobbySkillSlot').appendChild($('skillPick'));
+    if (id === 'title') $('titleSkillSlot').appendChild($('skillPick'));
   }
   function storage(get, val) {
     try { if (get) return localStorage.getItem('blob-name') || ''; localStorage.setItem('blob-name', val); } catch (e) { return ''; }
@@ -28,6 +31,40 @@
   const myName = () => { const n = $('nameInput').value.trim() || 'プレイヤー'; storage(false, n); return n; };
 
   if (!hasNet) { $('onlineBox').hidden = true; $('offlineNote').hidden = false; }
+
+  // ---------- スキル選び（2つ。1つめが Q、2つめが E） ----------
+  let mySkills = (() => { try { return cleanSkills(JSON.parse(localStorage.getItem('blob-skills') || '[]')); } catch (e) { return cleanSkills([]); } })();
+  let focusSkill = mySkills[0];
+  function renderPicker() {
+    $('skillGrid').innerHTML = SKILL_IDS.map((k) => {
+      const slot = mySkills.indexOf(k);
+      return `<button type="button" class="skill-opt${slot >= 0 ? ' on' : ''}" data-k="${k}" aria-pressed="${slot >= 0}">` +
+        `${SKILLS[k].name}${slot >= 0 ? `<span class="slot">${slot ? 'E' : 'Q'}</span>` : ''}</button>`;
+    }).join('');
+    const d = SKILLS[focusSkill];
+    $('skillDesc').textContent = d ? `${d.name}：${d.desc}（再使用まで${d.cd}秒）` : '';
+  }
+  $('skillGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('.skill-opt');
+    if (!b) return;
+    const k = b.dataset.k;
+    focusSkill = k;
+    if (mySkills.includes(k)) {
+      // 選択中をもう一度押すと Q と E を入れ替える
+      mySkills = [mySkills[1], mySkills[0]];
+    } else {
+      // 新しく選ぶと、古いほう（Q）が外れて E が Q に繰り上がる
+      mySkills = [mySkills[1], k];
+    }
+    try { localStorage.setItem('blob-skills', JSON.stringify(mySkills)); } catch (err) { /* 保存できなくても遊べる */ }
+    renderPicker();
+    if (socket && mode === 'online') socket.emit('skills', mySkills);
+  });
+  $('skillGrid').addEventListener('pointerover', (e) => {
+    const b = e.target.closest('.skill-opt');
+    if (b && b.dataset.k !== focusSkill) { focusSkill = b.dataset.k; renderPicker(); }
+  });
+  renderPicker();
 
   // ---------- オンライン（WebSocket） ----------
   // 送信前に接続が終わっていなくても、開いた時点でまとめて送る
@@ -72,12 +109,12 @@
     socket.on('result', (res) => { resultData = res; renderResult(); });
     return socket;
   }
-  $('btnCreate').onclick = () => { mode = 'online'; connect().emit('create', { name: myName() }); };
+  $('btnCreate').onclick = () => { mode = 'online'; connect().emit('create', { name: myName(), skills: mySkills }); };
   $('btnJoin').onclick = () => {
     const code = $('codeInput').value.trim();
     if (!/^\d{4}$/.test(code)) { $('joinError').textContent = '4桁の部屋コードを入力してください'; return; }
     mode = 'online';
-    connect().emit('join', { name: myName(), code });
+    connect().emit('join', { name: myName(), code, skills: mySkills });
   };
   $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnJoin').click(); });
 
@@ -85,7 +122,8 @@
     $('roomCode').textContent = room.code;
     const isHost = room.hostId === myId;
     $('memberList').innerHTML = room.members.map((m) =>
-      `<li><span>${esc(m.name)}${m.id === myId ? '（あなた）' : ''}</span>${m.id === room.hostId ? '<span class="tag">ホスト</span>' : ''}</li>`).join('');
+      `<li><span>${esc(m.name)}${m.id === myId ? '（あなた）' : ''}<span class="mskills">${(m.skills || []).map((k) => SKILLS[k] ? SKILLS[k].name : '').join('・')}</span></span>` +
+      `${m.id === room.hostId ? '<span class="tag">ホスト</span>' : ''}</li>`).join('');
     $('hostBox').hidden = !isHost;
     $('waitText').hidden = isHost;
     $('timeSelect').value = String(room.matchTime);
@@ -99,7 +137,7 @@
     mode = 'solo';
     resultData = null;
     solo = new Game({ matchTime: 300 });
-    solo.addPlayer('me', myName());
+    solo.addPlayer('me', myName(), mySkills);
     myId = 'me';
     resetView();
     show('game');
@@ -145,6 +183,8 @@
     if (!inGame() || e.target.tagName === 'INPUT') return;
     if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) doSplit(); }
     if (e.code === 'KeyW' && !ejectHeld) setEject(true);
+    if (e.code === 'KeyQ' && !e.repeat) useSkill(0);
+    if (e.code === 'KeyE' && !e.repeat) useSkill(1);
   });
   addEventListener('keyup', (e) => { if (e.code === 'KeyW') setEject(false); });
   addEventListener('blur', () => setEject(false));
@@ -170,6 +210,11 @@
     sendInput(true);
     if (mode === 'solo' && solo) solo.split('me');
     else if (socket) socket.emit('split');
+  }
+  function useSkill(slot) {
+    sendInput(true); // ワープ・トラップは今の向きを使う
+    if (mode === 'solo' && solo) solo.useSkill('me', slot);
+    else if (socket && mode === 'online') socket.emit('skill', slot);
   }
   function setEject(on) {
     if (ejectHeld === on) return;
@@ -207,6 +252,11 @@
   $('btnSplit').addEventListener('touchstart', (e) => { e.preventDefault(); doSplit(); }, { passive: false });
   $('btnEject').addEventListener('touchstart', (e) => { e.preventDefault(); setEject(true); }, { passive: false });
   $('btnEject').addEventListener('touchend', (e) => { e.preventDefault(); setEject(false); }, { passive: false });
+  for (const slot of [0, 1]) {
+    const b = $('sk' + slot);
+    b.addEventListener('touchstart', (e) => { e.preventDefault(); useSkill(slot); }, { passive: false });
+    b.addEventListener('click', () => { useSkill(slot); b.blur(); });
+  }
 
   // ---------- 表示 ----------
   const view = { x: 2000, y: 2000, zoom: 1, init: false };
@@ -321,7 +371,7 @@
     // ウイルス（セルより上：隠れ蓑になる）
     for (const v of s.viruses) {
       const d = smooth('v' + v.i, v.x, v.y, radius(v.m), k);
-      drawVirus(d.x, d.y, d.r, now);
+      drawVirus(d.x, d.y, d.r, now, v.t);
     }
 
     // 隕石
@@ -343,9 +393,50 @@
     drawMini(s);
   }
 
+  function drawSkillFx(c, d, now) {
+    const r = d.r, f = c.f || 0;
+    if (f & 4) {
+      // マグネット：吸い寄せる範囲を回る点線で
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 210, 87, 0.45)'; ctx.lineWidth = 3; ctx.setLineDash([10, 14]);
+      ctx.lineDashOffset = -now / 25;
+      ctx.beginPath(); ctx.arc(d.x, d.y, r + 260, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    if (f & 2) {
+      // ダッシュ：外側にブレた輪
+      for (let i = 1; i <= 3; i++) {
+        ctx.strokeStyle = `rgba(120, 220, 255, ${0.35 - i * 0.09})`; ctx.lineWidth = Math.max(2, r * 0.05);
+        ctx.beginPath(); ctx.arc(d.x, d.y, r * (1 + i * 0.09), 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    if (c.w) {
+      // ワープ直後の光
+      ctx.fillStyle = 'rgba(200, 170, 255, 0.35)';
+      ctx.beginPath(); ctx.arc(d.x, d.y, r * 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function drawShield(c, d, now) {
+    const r = d.r + Math.max(6, d.r * 0.12);
+    const n = 6, rot = now / 900;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(140, 240, 255, 0.95)'; ctx.fillStyle = 'rgba(140, 240, 255, 0.12)';
+    ctx.lineWidth = Math.max(3, d.r * 0.06);
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const a = rot + (i / n) * Math.PI * 2;
+      const x = d.x + Math.cos(a) * r, y = d.y + Math.sin(a) * r;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
   function drawCell(c, d, now) {
     const r = d.r;
-    ctx.globalAlpha = c.g ? 0.45 + Math.sin(now / 90) * 0.1 : 1;
+    if (c.f) drawSkillFx(c, d, now);
+    // ステルス中の自分は半透明（ほかの人には見えていない）
+    ctx.globalAlpha = c.g ? 0.45 + Math.sin(now / 90) * 0.1 : (c.f & 8) ? 0.38 : 1;
     if (c.k === 'G') {
       // ヌシ：暗い赤にトゲ
       ctx.fillStyle = '#5a1328'; ctx.strokeStyle = '#ff4d6d'; ctx.lineWidth = Math.max(4, r * 0.04);
@@ -385,6 +476,7 @@
       }
     }
     ctx.globalAlpha = 1;
+    if (c.f & 1) drawShield(c, d, now);
   }
 
   function label(text, x, y, size, color) {
@@ -402,9 +494,11 @@
     ctx.closePath(); ctx.fill(); ctx.stroke();
   }
 
-  function drawVirus(x, y, r, now) {
+  function drawVirus(x, y, r, now, trapLeft) {
     const n = 22;
-    ctx.fillStyle = 'rgba(70, 230, 110, 0.85)'; ctx.strokeStyle = '#1f9e47'; ctx.lineWidth = 4;
+    // トラップで置いたウイルスは黄緑に、残り秒数を表示
+    ctx.fillStyle = trapLeft ? 'rgba(190, 240, 60, 0.85)' : 'rgba(70, 230, 110, 0.85)';
+    ctx.strokeStyle = trapLeft ? '#7f9e1f' : '#1f9e47'; ctx.lineWidth = 4;
     ctx.beginPath();
     for (let i = 0; i <= n * 2; i++) {
       const a = (i / (n * 2)) * Math.PI * 2 + now / 3000;
@@ -413,6 +507,7 @@
       i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
     }
     ctx.fill(); ctx.stroke();
+    if (trapLeft) label(String(trapLeft), x, y, r * 0.36, '#24300a');
   }
 
   function drawMini(s) {
@@ -452,6 +547,19 @@
       $('toasts').appendChild(el);
       setTimeout(() => el.remove(), 3500);
       while ($('toasts').children.length > 3) $('toasts').firstChild.remove();
+    }
+    if (s.me && s.me.skills) {
+      s.me.skills.forEach((sk, i) => {
+        const b = $('sk' + i);
+        if (!b) return;
+        const name = SKILLS[sk.id] ? SKILLS[sk.id].name : '';
+        const nm = b.querySelector('.sk-name');
+        if (nm.textContent !== name) nm.textContent = name;
+        b.classList.toggle('active', sk.act > 0);
+        b.classList.toggle('ready', sk.cd <= 0);
+        b.querySelector('.sk-cd').textContent = sk.act > 0 ? `${Math.ceil(sk.act)}` : sk.cd > 0 ? `${Math.ceil(sk.cd)}` : '';
+        b.setAttribute('aria-label', `${name}（${i ? 'E' : 'Q'}）${sk.cd > 0 && !(sk.act > 0) ? ` あと${Math.ceil(sk.cd)}秒` : ''}`);
+      });
     }
     const dead = s.me && !s.me.alive && !s.ended;
     $('death').hidden = !dead;

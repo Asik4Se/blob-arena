@@ -4,7 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const ws = require('./ws.js');
-const { Game } = require('./public/core.js');
+const { Game, cleanSkills } = require('./public/core.js');
 
 const PORT = process.env.PORT || 3000;
 const TICK = 1 / 20;
@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
 });
 
 const rooms = new Map();
-const clients = new Map(); // id -> { conn, room, name, vw, vh }
+const clients = new Map(); // id -> { conn, room, name, skills, vw, vh }
 
 const send = (c, t, d) => { if (c && c.conn.open) c.conn.send(JSON.stringify({ t, d })); };
 
@@ -39,7 +39,7 @@ function newCode() {
 function roomInfo(room) {
   return {
     code: room.code, hostId: room.hostId, state: room.state, matchTime: room.matchTime,
-    members: [...room.members].map((id) => ({ id, name: clients.get(id).name })),
+    members: [...room.members].map((id) => ({ id, name: clients.get(id).name, skills: clients.get(id).skills })),
   };
 }
 function broadcast(room, t, d) { for (const id of room.members) send(clients.get(id), t, d); }
@@ -48,7 +48,7 @@ function broadcastRoom(room) { broadcast(room, 'room', roomInfo(room)); }
 function startMatch(room) {
   stopLoop(room);
   room.game = new Game({ matchTime: room.matchTime });
-  for (const id of room.members) room.game.addPlayer(id, clients.get(id).name);
+  for (const id of room.members) room.game.addPlayer(id, clients.get(id).name, clients.get(id).skills);
   room.state = 'playing';
   broadcastRoom(room);
   room.loop = setInterval(() => tick(room), TICK * 1000);
@@ -91,7 +91,7 @@ function joinRoom(id, room, name) {
   c.name = cleanName(name);
   c.room = room.code;
   room.members.add(id);
-  if (room.state === 'playing' && room.game) room.game.addPlayer(id, c.name);
+  if (room.state === 'playing' && room.game) room.game.addPlayer(id, c.name, c.skills);
   broadcastRoom(room);
 }
 function cleanName(n) {
@@ -101,11 +101,13 @@ function cleanName(n) {
 
 const handlers = {
   create(id, d) {
+    clients.get(id).skills = cleanSkills(d && d.skills);
     const room = { code: newCode(), hostId: id, members: new Set(), state: 'lobby', matchTime: 300, game: null, loop: null };
     rooms.set(room.code, room);
     joinRoom(id, room, d && d.name);
   },
   join(id, d) {
+    clients.get(id).skills = cleanSkills(d && d.skills);
     const room = rooms.get(String((d && d.code) || '').trim());
     if (!room) { send(clients.get(id), 'joinError', '部屋が見つかりません'); return; }
     joinRoom(id, room, d.name);
@@ -133,12 +135,18 @@ const handlers = {
   input(id, d, room) { if (room && room.game && d) room.game.setInput(id, Number(d.dx), Number(d.dy)); },
   split(id, d, room) { if (room && room.game) room.game.split(id); },
   eject(id, d, room) { if (room && room.game) room.game.setEject(id, !!d); },
+  // スキルの選び直し（次の試合から反映。ロビーの一覧にも出す）
+  skills(id, d, room) {
+    clients.get(id).skills = cleanSkills(d);
+    if (room && room.state !== 'playing') broadcastRoom(room);
+  },
+  skill(id, d, room) { if (room && room.game) room.game.useSkill(id, Number(d) === 1 ? 1 : 0); },
   leave(id) { leave(id); },
 };
 
 ws.attach(server, '/ws', (conn) => {
   const id = crypto.randomBytes(6).toString('hex');
-  clients.set(id, { conn, room: null, name: '', vw: 1280, vh: 720 });
+  clients.set(id, { conn, room: null, name: '', skills: cleanSkills([]), vw: 1280, vh: 720 });
   send(clients.get(id), 'hello', { id });
   conn.on('message', (text) => {
     let msg;
