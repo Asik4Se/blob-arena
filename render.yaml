@@ -1,0 +1,10 @@
+# Render（https://render.com）用の設定。「New」→「Blueprint」でこのリポジトリを選ぶと自動で設定されます
+services:
+  - type: web
+    name: blob-arena
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    autoDeploy: true

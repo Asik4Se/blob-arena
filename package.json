@@ -1,0 +1,11 @@
+{
+  "name": "blob-arena",
+  "version": "0.1.0",
+  "description": "ブロブアリーナ：Agar.io風の複数人対戦ゲーム",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build:solo": "node tools/build-solo.js"
+  },
+  "engines": { "node": ">=18" }
+}

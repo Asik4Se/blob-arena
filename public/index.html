@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ブロブアリーナ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<!-- タイトル -->
+<section id="title" class="screen">
+  <div class="panel title-panel">
+    <h1 class="logo"><span>BLOB</span> ARENA</h1>
+    <p class="sub">食べて、大きくなって、逆転しろ。</p>
+    <label class="field">
+      <span>名前</span>
+      <input id="nameInput" maxlength="12" placeholder="プレイヤー" autocomplete="off">
+    </label>
+    <div id="onlineBox">
+      <button id="btnCreate" class="btn primary">部屋を作る</button>
+      <div class="join-row">
+        <input id="codeInput" inputmode="numeric" maxlength="4" placeholder="部屋コード">
+        <button id="btnJoin" class="btn">入る</button>
+      </div>
+      <p id="joinError" class="error"></p>
+    </div>
+    <p id="offlineNote" class="note" hidden>この版はひとり練習専用です。みんなで遊ぶときはサーバー版を開いてください。</p>
+    <button id="btnSolo" class="btn ghost">ひとりで練習</button>
+    <p class="help">マウスで移動 ・ Space 分裂 ・ W 射出<br>スマホは左で移動、右のボタンで分裂・射出</p>
+  </div>
+</section>
+
+<!-- ロビー -->
+<section id="lobby" class="screen" hidden>
+  <div class="panel lobby-panel">
+    <p class="label">部屋コード</p>
+    <p id="roomCode" class="room-code">----</p>
+    <p class="note">このコードを友だちに伝えてください</p>
+    <ul id="memberList" class="members"></ul>
+    <div id="hostBox">
+      <label class="field inline">
+        <span>試合時間</span>
+        <select id="timeSelect">
+          <option value="180">3分</option>
+          <option value="300" selected>5分</option>
+          <option value="420">7分</option>
+          <option value="600">10分</option>
+        </select>
+      </label>
+      <button id="btnStart" class="btn primary">スタート</button>
+    </div>
+    <p id="waitText" class="note">ホストの開始を待っています…</p>
+    <button id="btnLeave" class="btn ghost small">退出する</button>
+  </div>
+</section>
+
+<!-- ゲームHUD -->
+<div id="hud" hidden>
+  <div id="timer" class="chip">5:00</div>
+  <div id="badges"></div>
+  <div id="mystat" class="chip"></div>
+  <div id="rank" class="rank"><div class="rank-title">ランキング</div><ol id="rankList"></ol></div>
+  <canvas id="mini" width="300" height="300"></canvas>
+  <div id="toasts"></div>
+  <div id="death" hidden>
+    <p class="death-title">食べられた！</p>
+    <p id="deathBy"></p>
+    <p id="deathCount" class="death-count">3</p>
+  </div>
+  <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
+  <button id="btnSplit" class="tbtn">分裂</button>
+  <button id="btnEject" class="tbtn small">射出</button>
+  <button id="btnQuit" class="quit" title="やめる">×</button>
+</div>
+
+<!-- リザルト -->
+<section id="result" class="screen" hidden>
+  <div class="panel result-panel">
+    <h2>試合終了</h2>
+    <p id="resultMe" class="result-me"></p>
+    <ol id="resultList" class="result-list"></ol>
+    <div id="resultHost">
+      <button id="btnAgain" class="btn primary">もう一戦</button>
+      <button id="btnToLobby" class="btn ghost">ロビーへ</button>
+    </div>
+    <p id="resultWait" class="note">ホストの操作を待っています…</p>
+  </div>
+</section>
+
+<script src="core.js"></script>
+<script src="client.js"></script>
+</body>
+</html>
