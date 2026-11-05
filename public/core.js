@@ -45,6 +45,9 @@
     giantMin: 800,
     giantMax: 20000,
     giantSpeedMul: 0.75,
+    giantGrowRate: 0.02,   // ヌシが育つ速さ（1秒あたり今の大きさの2%、最低8）
+    giantHuntRatio: 1.15,  // これ以上大きいプレイヤーが近くにいる間、ヌシは育たない
+    giantHuntDist: 1600,
   };
 
   const NPC_KINDS = {
@@ -779,6 +782,7 @@
           a.mass += gain;
           b.mass = 0;
           if (!b.owner.isNpc) b.owner.lastHitBy = a.owner.isNpc ? (a.owner.kind === 'G' ? 'ヌシ' : 'NPC') : a.owner.name;
+          else if (b.owner.kind === 'G' && !a.owner.isNpc) b.owner.lastEater = a.owner.name;
         });
       }
 
@@ -821,6 +825,7 @@
         }
         if (!o.cells.length) {
           if (o.isNpc) {
+            if (o.kind === 'G' && o.lastEater) this.notice(`${o.lastEater} がヌシを食べた！`, 'gold');
             this.owners.delete(o.id);
           } else if (o.alive) {
             o.alive = false;
@@ -832,7 +837,7 @@
       }
 
       // ヌシの維持（毎ステップ）
-      this.maintainGiant();
+      this.maintainGiant(dt);
       // 死んだNPCはすぐ補充
       this.balanceNpcs(false);
 
@@ -864,26 +869,35 @@
       }
     }
 
-    maintainGiant() {
+    // ヌシは最大プレイヤーの1.3倍を目指して少しずつ育つ。
+    // ヌシより大きく育ったプレイヤーが近くにいる間は育たないので、追いかければ食べられる。
+    maintainGiant(dt) {
       const target = this.giantTarget();
       let giant = null;
       for (const o of this.owners.values()) if (o.isNpc && o.kind === 'G') giant = o;
       if (!giant) { this.spawnNpc('G'); return; }
+      if (!giant.cells.length) return;
+      let main = giant.cells[0];
+      for (const c of giant.cells) if (c.mass > main.mass) main = c;
       const m = this.massOf(giant);
-      let maxP = 0;
-      for (const p of this.owners.values()) if (!p.isNpc && p.alive) maxP = Math.max(maxP, this.massOf(p));
-      if (m < maxP * 1.1) {
-        // 最大プレイヤーに追いつかれそうなら、すぐに目標の大きさまで育てる
-        let main = giant.cells[0];
-        for (const c of giant.cells) if (c.mass > main.mass) main = c;
-        main.mass += target - m;
-      } else if (m < target) {
-        const add = Math.min(target - m, Math.max(target * 0.05, 30));
-        let main = giant.cells[0];
-        for (const c of giant.cells) if (c.mass > main.mass) main = c;
-        main.mass += add;
+      const gc = this.centerOf(giant);
+      let hunter = null;
+      for (const p of this.owners.values()) {
+        if (p.isNpc || !p.alive) continue;
+        let big = null;
+        for (const c of p.cells) if (!big || c.mass > big.mass) big = c;
+        if (!big || big.mass < main.mass * CFG.giantHuntRatio) continue;
+        if (dist2(big.x, big.y, gc.x, gc.y) > CFG.giantHuntDist * CFG.giantHuntDist) continue;
+        hunter = p; break;
+      }
+      if (hunter) {
+        if (!giant.huntNoticed) { giant.huntNoticed = true; this.notice(`${hunter.name} がヌシを食べられる大きさに！`, 'bounty'); }
+        return;
+      }
+      if (m < target) {
+        main.mass += Math.min(target - m, Math.max(m * CFG.giantGrowRate, 8) * dt);
       } else if (m > target * 1.4) {
-        for (const c of giant.cells) c.mass *= 0.97;
+        for (const c of giant.cells) c.mass *= 1 - 0.03 * dt;
       }
     }
 
