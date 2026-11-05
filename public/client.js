@@ -262,7 +262,8 @@
   const view = { x: 2000, y: 2000, zoom: 1, init: false };
   const disp = new Map();
   let seenNotices = new Set();
-  function resetView() { view.init = false; disp.clear(); seenNotices = new Set(); snap = null; $('toasts').innerHTML = ''; }
+  const burstSeen = new Map();
+  function resetView() { view.init = false; disp.clear(); seenNotices = new Set(); burstSeen.clear(); snap = null; $('toasts').innerHTML = ''; }
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -387,6 +388,28 @@
         ctx.fillStyle = `rgba(255,240,200,${a * 0.8})`;
         ctx.beginPath(); ctx.arc(m.x, m.y, 90 + (1 - a) * 60, 0, Math.PI * 2); ctx.fill();
       }
+    }
+
+    // 衝撃波（広がる輪）と合体（縮む輪）
+    for (const bu of s.bursts || []) {
+      if (!burstSeen.has(bu.i)) burstSeen.set(bu.i, { at: now, b: bu });
+    }
+    for (const [key, e] of burstSeen) {
+      const t = (now - e.at) / 450;
+      if (t >= 1) { burstSeen.delete(key); continue; }
+      const bu = e.b;
+      ctx.save();
+      if (bu.k === 1) {
+        const rr = bu.r + bu.reach * t;
+        ctx.strokeStyle = `rgba(170, 200, 255, ${0.8 * (1 - t)})`; ctx.lineWidth = 10 * (1 - t) + 2;
+        ctx.beginPath(); ctx.arc(bu.x, bu.y, rr, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = `rgba(170, 200, 255, ${0.12 * (1 - t)})`; ctx.fill();
+      } else {
+        const rr = bu.r * (1 + 1.2 * (1 - t));
+        ctx.strokeStyle = `rgba(92, 242, 197, ${0.85 * (1 - t)})`; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(bu.x, bu.y, rr, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
     }
 
     for (const [id, d] of disp) if (d.seen !== frame) disp.delete(id);
@@ -556,7 +579,7 @@
         const nm = b.querySelector('.sk-name');
         if (nm.textContent !== name) nm.textContent = name;
         b.classList.toggle('active', sk.act > 0);
-        b.classList.toggle('ready', sk.cd <= 0);
+        b.classList.toggle('ready', sk.cd <= 0 && sk.use !== 0);
         b.querySelector('.sk-cd').textContent = sk.act > 0 ? `${Math.ceil(sk.act)}` : sk.cd > 0 ? `${Math.ceil(sk.cd)}` : '';
         b.setAttribute('aria-label', `${name}（${i ? 'E' : 'Q'}）${sk.cd > 0 && !(sk.act > 0) ? ` あと${Math.ceil(sk.cd)}秒` : ''}`);
       });

@@ -57,11 +57,13 @@
   // プレイヤーが試合前に2つ選んで使うスキル（cd：使ったあと次に使えるまでの秒数、dur：効果が続く秒数）
   const SKILLS = {
     dash: { name: 'ダッシュ', desc: '2.5秒間、移動が1.7倍速くなる', cd: 10, dur: 2.5 },
-    shield: { name: 'シールド', desc: '3秒間、食べられず、ウイルスや隕石でも割れない', cd: 25, dur: 3 },
+    shield: { name: 'シールド', desc: '5秒間、食べられず、ウイルスや隕石でも割れない', cd: 30, dur: 5 },
     magnet: { name: 'マグネット', desc: '5秒間、まわりのエサとゴールデンエサを吸い寄せる', cd: 18, dur: 5 },
     warp: { name: 'ワープ', desc: '進んでいる方向へ一瞬で移動する', cd: 15, dur: 0 },
     stealth: { name: 'ステルス', desc: '6秒間、ほかのプレイヤーとNPCから見えなくなる', cd: 25, dur: 6 },
     trap: { name: 'トラップ', desc: '背後にウイルスを置き、追ってくる大きい相手を割る', cd: 20, dur: 0 },
+    merge: { name: '合体', desc: '分裂したセルを一瞬でひとつに戻す（分裂していないときは使えない）', cd: 30, dur: 0 },
+    shock: { name: '衝撃波', desc: 'まわりのセルとウイルスを外側へ吹き飛ばす', cd: 20, dur: 0 },
   };
   const SKILL_IDS = Object.keys(SKILLS);
   const DEFAULT_SKILLS = ['dash', 'shield'];
@@ -76,6 +78,8 @@
   const DASH_MUL = 1.7;
   const MAGNET_REACH = 260;
   const TRAP_LIFE = 30;
+  const SHOCK_REACH = 420;   // 衝撃波が届く距離（自分のふちから）
+  const SHOCK_POWER = 1300;  // 近いほど強く飛ばす
 
   const radius = (m) => 6 * Math.sqrt(m);
   const speedOf = (m) => Math.max(26, 620 * Math.pow(m, -0.36));
@@ -186,11 +190,47 @@
       const k = p.skills[slot];
       const def = k && SKILLS[k];
       if (!def || (p.cdUntil[k] || 0) > this.time) return false;
+      if (k === 'merge' && p.cells.length < 2) return false; // 分裂していないときは使わない（待ち時間も減らさない）
       p.cdUntil[k] = this.time + def.cd;
       if (def.dur) p.fx[k] = this.time + def.dur;
       if (k === 'warp') this.warpOwner(p);
       if (k === 'trap') this.placeTrap(p);
+      if (k === 'merge') this.mergeOwner(p);
+      if (k === 'shock') this.shockOwner(p);
+      p.burstAt = this.time; p.burstKind = k;
       return true;
+    }
+    // 合体：すべてのセルを重心の位置でひとつにまとめる
+    mergeOwner(p) {
+      const center = this.centerOf(p);
+      const total = this.massOf(p);
+      let main = p.cells[0];
+      for (const c of p.cells) if (c.mass > main.mass) main = c;
+      const r = radius(total);
+      main.x = clamp(center.x, r * 0.5, this.size - r * 0.5);
+      main.y = clamp(center.y, r * 0.5, this.size - r * 0.5);
+      main.mass = total; main.vx = 0; main.vy = 0; main.mergeAt = 0;
+      p.cells = [main];
+    }
+    // 衝撃波：まわりのセル（自分以外）とウイルスを外側へ押し出す
+    shockOwner(p) {
+      const center = this.centerOf(p);
+      let big = 0;
+      for (const c of p.cells) big = Math.max(big, Math.hypot(c.x - center.x, c.y - center.y) + radius(c.mass));
+      const reach = big + SHOCK_REACH;
+      const push = (o, mass) => {
+        const dx = o.x - center.x, dy = o.y - center.y, d = Math.hypot(dx, dy) || 1;
+        if (d > reach + radius(mass)) return;
+        // 近いほど・軽いほどよく飛ぶ（巨大なヌシはほとんど動かない）
+        const k = SHOCK_POWER * (1 - Math.min(1, d / (reach + radius(mass)))) * Math.min(1, 6 / Math.sqrt(mass) + 0.25);
+        o.vx = (o.vx || 0) + (dx / d) * k; o.vy = (o.vy || 0) + (dy / d) * k;
+      };
+      for (const o of this.owners.values()) {
+        if (o === p) continue;
+        for (const c of o.cells) push(c, c.mass);
+      }
+      for (const v of this.viruses) push(v, v.mass);
+      for (const e of this.ejected) push(e, e.mass);
     }
     moveDir(p) {
       let dx = p.tx, dy = p.ty;
@@ -937,9 +977,14 @@
       const inView = (x, y, r) => x + r > x0 && x - r < x1 && y + r > y0 && y - r < y1;
 
       const cells = [];
+      const bursts = []; // 衝撃波・合体の演出
       for (const o of this.owners.values()) {
         // ステルス中のプレイヤーは、本人以外には見えない
         if (o.id !== id && this.fx(o, 'stealth')) continue;
+        if (o.burstAt !== undefined && T - o.burstAt < 0.5 && (o.burstKind === 'shock' || o.burstKind === 'merge') && o.cells.length) {
+          const c = this.centerOf(o), r = radius(this.massOf(o));
+          if (inView(c.x, c.y, r + SHOCK_REACH)) bursts.push({ i: o.id + ':' + o.burstAt, k: o.burstKind === 'shock' ? 1 : 2, x: Math.round(c.x), y: Math.round(c.y), r: Math.round(r), reach: SHOCK_REACH });
+        }
         const f = o.isNpc ? 0 : (this.fx(o, 'shield') ? 1 : 0) | (this.fx(o, 'dash') ? 2 : 0) | (this.fx(o, 'magnet') ? 4 : 0) | (this.fx(o, 'stealth') ? 8 : 0);
         for (const c of o.cells) {
           const r = radius(c.mass);
@@ -984,9 +1029,10 @@
           killedBy: p.killedBy || '', rank: myRank + 1, bounty: p.id === this.bountyId,
           skills: p.skills.map((k) => ({
             id: k, cd: Math.max(0, +((p.cdUntil[k] || 0) - T).toFixed(1)), act: Math.max(0, +((p.fx[k] || 0) - T).toFixed(1)),
+            use: k === 'merge' && p.cells.length < 2 ? 0 : 1, // 合体は分裂中だけ使える
           })),
         } : null,
-        cells, pellets, viruses, ejected, golden, meteors,
+        cells, pellets, viruses, ejected, golden, meteors, bursts,
         ranking: this.ranking.slice(0, 10).map((r) => ({ id: r.id, n: r.name, s: r.score, me: r.id === id ? 1 : 0, b: r.id === this.bountyId ? 1 : 0 })),
         myRow: myRank >= 10 ? { rank: myRank + 1, n: this.ranking[myRank].name, s: this.ranking[myRank].score } : null,
         players, giant: giantPos,

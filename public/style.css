@@ -122,8 +122,8 @@ body.touch #mini { width: 110px; height: 110px; left: auto; right: 12px; bottom:
 .skill-pick { text-align: left; margin-bottom: 16px; }
 .pick-title { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
 .pick-keys { font-size: 11px; }
-.skill-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.skill-opt { position: relative; font: inherit; font-weight: 700; font-size: 13px; padding: 10px 4px; border-radius: 12px;
+.skill-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.skill-opt { position: relative; font: inherit; font-weight: 700; font-size: 12.5px; padding: 10px 2px; white-space: nowrap; border-radius: 12px;
   border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
 .skill-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .skill-opt.on { background: rgba(92, 242, 197, 0.16); border-color: var(--accent); color: var(--accent); }
