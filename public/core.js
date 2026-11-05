@@ -45,7 +45,7 @@
     giantMin: 800,
     giantMax: 20000,
     giantSpeedMul: 0.75,
-    dominateArea: 0.25,    // 自分のセルの面積の合計がマップの25%に達したら、その場で強制勝利
+    dominateArea: 0.7,     // 自分のセルの面積の合計がマップの70%に達したら、その場で強制勝利
     giantGrowRate: 0.02,   // ヌシが育つ速さ（1秒あたり今の大きさの2%、最低8）
   };
 
