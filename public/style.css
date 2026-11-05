@@ -150,3 +150,5 @@ body.touch #skillBar { left: auto; right: 24px; bottom: 140px; transform: none; 
 body.touch .skill-btn { width: 92px; height: 44px; font-size: 13px; }
 body.touch .skill-btn .sk-key { display: none; }
 @media (max-width: 640px) { body.touch #mini { bottom: 250px; } }
+
+.result-reason { margin: 0 0 8px; color: var(--gold); font-weight: 800; }

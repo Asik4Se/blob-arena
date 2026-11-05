@@ -148,6 +148,10 @@
   function renderResult() {
     if (!resultData) return;
     const me = resultData.find((r) => r.id === myId);
+    const dom = resultData.find((r) => r.dominated);
+    $('resultTitle').textContent = dom ? '強制勝利' : '試合終了';
+    $('resultReason').hidden = !dom;
+    if (dom) $('resultReason').textContent = `${dom.id === myId ? 'あなた' : dom.name}が盤面を埋め尽くしました`;
     $('resultMe').textContent = me ? `あなたは ${me.rank}位（スコア ${me.score}）` : '';
     $('resultList').innerHTML = resultData.map((r) =>
       `<li class="${r.id === myId ? 'me' : ''}"><span>${r.rank}位</span><span class="n">${esc(r.name)}</span><span class="s">${r.score}</span></li>`).join('');

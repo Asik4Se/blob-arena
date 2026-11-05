@@ -45,6 +45,7 @@
     giantMin: 800,
     giantMax: 20000,
     giantSpeedMul: 0.75,
+    dominateArea: 0.25,    // 自分のセルの面積の合計がマップの25%に達したら、その場で強制勝利
     giantGrowRate: 0.02,   // ヌシが育つ速さ（1秒あたり今の大きさの2%、最低8）
   };
 
@@ -858,11 +859,31 @@
       // ランキング・賞金首
       this.updateRanking();
 
-      if (T >= this.matchTime) {
-        this.ended = true;
-        this.updateRanking();
-        this.result = this.ranking.map((r, i) => ({ rank: i + 1, ...r }));
+      // 盤面を埋め尽くすほど育ったら強制勝利
+      const mapArea = this.size * this.size;
+      for (const p of this.owners.values()) {
+        if (p.isNpc || !p.alive) continue;
+        let area = 0;
+        for (const c of p.cells) area += Math.PI * radius(c.mass) ** 2;
+        if (area >= mapArea * CFG.dominateArea) { this.endMatch(p.id); return; }
       }
+
+      if (T >= this.matchTime) this.endMatch(null);
+    }
+
+    // 試合を終える。winnerId があれば盤面を埋め尽くした強制勝利（スコアに関係なく1位）
+    endMatch(winnerId) {
+      this.ended = true;
+      this.updateRanking();
+      const list = this.ranking.slice();
+      if (winnerId) {
+        const i = list.findIndex((r) => r.id === winnerId);
+        if (i > 0) list.unshift(list.splice(i, 1)[0]);
+        const w = this.owners.get(winnerId);
+        if (w) this.notice(`${w.name} が盤面を埋め尽くした！`, 'bounty');
+      }
+      this.winnerId = winnerId || null;
+      this.result = list.map((r, i) => ({ rank: i + 1, ...r, dominated: r.id === winnerId }));
     }
 
     // ヌシは最大プレイヤーの1.3倍を目指して少しずつ育つ（追い越せば食べられる）
